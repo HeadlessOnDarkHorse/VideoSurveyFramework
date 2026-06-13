@@ -22,3 +22,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+roku-android-bridge/android-app/app/build/
+roku-android-bridge/android-app/.gradle/
+roku-android-bridge/android-app/local.properties
+roku-android-bridge/android-app/app/build/
+roku-android-bridge/android-app/.gradle/
+roku-android-bridge/android-app/local.properties
