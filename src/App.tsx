@@ -4,6 +4,7 @@ import SignIn from "./pages/SignIn";
 import SignUp from "./pages/SignUp";
 import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
+import FieldCapture from "./components/FieldCapture";
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
         <Route path="/sign-up" element={<SignUp />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/field" element={<FieldCapture />} />
       </Routes>
     </Router>
   );
