@@ -4,6 +4,7 @@ import { Camera, Loader2, X, AlertTriangle } from 'lucide-react';
 import { ClassifierClient } from '../lib/ClassifierClient';
 import type { ClassificationResult } from '../lib/classifier.worker';
 import { useNavigate } from 'react-router-dom';
+import { db } from '../lib/db';
 
 const FieldCapture: React.FC = () => {
   const webcamRef = useRef<Webcam>(null);
@@ -12,11 +13,20 @@ const FieldCapture: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [results, setResults] = useState<ClassificationResult[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [location, setLocation] = useState<{lat: number, lng: number} | null>(null);
 
   // Initialize ClassifierClient
   const classifierClient = useRef<ClassifierClient | null>(null);
 
   useEffect(() => {
+    // Request geolocation
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        (err) => console.warn('Geolocation denied or failed', err)
+      );
+    }
+
     // In a real environment, we would load actual model/label URLs here.
     // For MVP UI dev, we initialize the client, but handle the lack of models via try/catch mock below.
     try {
@@ -77,6 +87,27 @@ const FieldCapture: React.FC = () => {
     setCapturedImage(null);
     setResults(null);
     setError(null);
+  };
+
+  const saveToGallery = async () => {
+    if (!capturedImage || !results) return;
+
+    const id = crypto.randomUUID();
+    const primaryResult = results[0];
+
+    await db.findings.add({
+      id,
+      title: primaryResult ? primaryResult.label : 'Unknown Finding',
+      notes: '',
+      imageDataUrl: capturedImage,
+      classification: results,
+      lat: location?.lat || null,
+      lng: location?.lng || null,
+      syncState: 'DRAFT',
+      createdAt: Date.now()
+    });
+
+    navigate('/gallery');
   };
 
   const videoConstraints = {
@@ -182,6 +213,7 @@ const FieldCapture: React.FC = () => {
                   Discard
                 </button>
                 <button
+                  onClick={saveToGallery}
                   className="flex-1 py-3 px-4 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors shadow-lg shadow-blue-500/20"
                 >
                   Save to Gallery
