@@ -310,3 +310,49 @@ The engine hooks into the Network Information API (`navigator.connection`) and B
 
 *   **On Cellular Save Data / Low Battery (<15%):** Pause automatically uploading `VIDEO_CLIP` media objects; sync `FINDING` text metadata and low-res image thumbnails only.
 *   **On Unmetered Wi-Fi / Charging:** Flush high-resolution media queue completely in background threads.
+
+---
+
+## 5. Production Edge-Cases & Actionable Refinements
+
+### A. IndexedDB Blob Storage Limitations (PWA Stage)
+
+*   **The Challenge:** Storing raw high-resolution media directly in IndexedDB across various mobile browsers (especially WebKit/iOS Safari) can lead to silent quota eviction or storage write crashes when storage exceeds ~50 MB to 100 MB.
+*   **Actionable Fix:**
+    *   Compress image captures client-side via `OffscreenCanvas` or WebAssembly (e.g., converting RAW/PNG to WebP at 85% quality) **prior** to writing to IndexedDB.
+    *   Enforce an aggressive local storage retention policy: once `LocalMedia` achieves `sync_state: 'UPLOADED'`, replace the full local Blob with a low-res thumbnail, clearing heavy binary files from the device.
+
+### B. PostGIS Fuzzing Vector Uniformity
+
+*   **The Challenge:** The current random offset formula generates a rectangular bounding box. Aggregating multiple public findings from a single site allows an adversary to average the fuzzed points and mathematically calculate the true centroid of the hidden site.
+*   **Actionable Fix:** Implement **Polar Coordinates with Gaussian Distance Noise** or snap points to a standardized static geographic grid (e.g., Uber H3 Spatial Indexing) so public points remain deterministic and cannot be reverse-engineered through statistical averaging.
+
+```sql
+-- Enhanced Grid-Based Location Fuzzing using Hexagonal Grid Centroids
+CREATE OR REPLACE FUNCTION fuzz_finding_location_grid()
+RETURNS TRIGGER AS $$
+DECLARE
+    -- Snapping coordinates to a fixed ~1.5km grid to prevent statistical centroid calculations
+    grid_size CONSTANT FLOAT := 0.015;
+BEGIN
+    NEW.public_fuzzed_location := ST_SetSRID(
+        ST_MakePoint(
+            floor(ST_X(NEW.exact_location) / grid_size) * grid_size + (grid_size / 2.0),
+            floor(ST_Y(NEW.exact_location) / grid_size) * grid_size + (grid_size / 2.0)
+        ), 4326);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+---
+
+## 6. Consolidated Architecture Matrix
+
+| Layer | MVP (Mobile Web / PWA) | Native Target (Android / Qualcomm) |
+| --- | --- | --- |
+| **Local Storage** | IndexedDB via **RxDB** / Dexie.js | SQLite via **WatermelonDB** / Room |
+| **Capture Buffer** | Canvas WebP Burst Capture / 30s manual clips | Hardware `MediaCodec` Ring Buffer onto file descriptor |
+| **Offline Inference** | **ONNX Runtime Web** (WASM / WebGL worker) | **Qualcomm SNPE / NPU SDK** (Native C++ bindings) |
+| **Media Transport** | TUS Protocol via Supabase Storage JS | TUS Protocol with background Android `WorkManager` |
+| **Geospatial Cache** | MBTiles vector chunks via IndexedDB Cache | MBTiles / GeoTIFF via native Mapbox SDK filesystem cache |
