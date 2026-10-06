@@ -12,7 +12,6 @@
   "dependencies": {
     "@radix-ui/react-label": "^2.1.7",
     "@radix-ui/react-slot": "^1.2.3",
-    "@supabase/supabase-js": "^2.76.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dexie": "^4.4.6",
@@ -23,6 +22,7 @@
     "leaflet": "^1.9.4",
     "lucide-react": "^0.548.0",
     "onnxruntime-web": "^1.30.0",
+    "pocketbase": "^0.28.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-i18next": "^16.2.0",

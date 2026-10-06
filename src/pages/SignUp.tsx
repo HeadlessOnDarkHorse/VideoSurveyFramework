@@ -9,7 +9,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/lib/supabase";
+import { pb } from "@/lib/pocketbase";
 
 const SignUp = () => {
   const [email, setEmail] = useState("");
@@ -20,24 +20,28 @@ const SignUp = () => {
     e.preventDefault();
     setError(null);
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-    });
+    try {
+      // Create user
+      await pb.collection('users').create({
+        email,
+        password,
+        passwordConfirm: password,
+      });
 
-    if (error) {
-      setError(error.message);
+      // Optionally authenticate immediately
+      await pb.collection('users').authWithPassword(email, password);
+
+    } catch (err: any) {
+      setError(err.message || 'Failed to create account.');
     }
   };
 
   const handleGoogleSignIn = async () => {
     setError(null);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-    });
-
-    if (error) {
-      setError(error.message);
+    try {
+      await pb.collection('users').authWithOAuth2({ provider: 'google' });
+    } catch (err: any) {
+      setError(err.message || 'Failed to sign in with Google.');
     }
   };
 

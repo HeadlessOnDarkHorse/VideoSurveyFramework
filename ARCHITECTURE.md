@@ -2,7 +2,7 @@
 
 ## 1. Proposed System Architecture
 
-The Eon platform adopts a modern, scalable, and modular client-server architecture, initially developed as a mobile-first web application with a clear trajectory toward a native Android application optimized for Qualcomm Snapdragon hardware. Remote field discovery requires a **Local-First, Optimistic-Replication** pattern. The application treats local device storage as the primary source of truth during field operations, treating Supabase as a background replication target.
+The Eon platform adopts a modern, scalable, and modular client-server architecture, initially developed as a mobile-first web application with a clear trajectory toward a native Android application optimized for Qualcomm Snapdragon hardware. Remote field discovery requires a **Local-First, Optimistic-Replication** pattern. The application treats local device storage as the primary source of truth during field operations, treating PocketBase as a background replication target.
 
 ### High-Level Components
 
@@ -17,10 +17,10 @@ The Eon platform adopts a modern, scalable, and modular client-server architectu
         *   **Audio/Microphone:** Voice input for real-time AI consultations.
     *   **On-Device Processing:** Local inference for the AI Assistant and computer vision tasks (ONNX Runtime Web initially, migrating to Qualcomm NPU SDK natively) to reduce latency and enable offline field use.
 
-*   **Backend Services (Supabase)**
-    *   **Database (PostgreSQL with PostGIS):** Relational data storage for user profiles, geological records, finding metadata, and community map points. Features location fuzzing for anti-looting security.
-    *   **Authentication:** Role-based access control (Standard Scouts vs. Level 5 Accredited Experts).
-    *   **Storage:** Secure cloud storage for the Private Digital Gallery, utilizing TUS (Resumable Upload Protocol) for robust media syncing.
+*   **Backend Services (PocketBase on Oracle Cloud)**
+    *   **Database (SQLite):** Lightweight, self-hosted relational data storage for user profiles, finding metadata, and community map points. Maximum free storage limits via Oracle Cloud VMs.
+    *   **Authentication:** Built-in role-based access control managed via PocketBase collections (Standard Scouts vs. Level 5 Accredited Experts).
+    *   **Storage:** Direct block storage for the Private Digital Gallery.
 
 *   **AI Engine & Processing**
     *   **Conversational & Scientific Guide:** Large Language Model (LLM) fine-tuned with a "Master Geologist/Paleontologist" prompt.
@@ -51,10 +51,10 @@ graph TD
         end
     end
 
-    subgraph Backend [Backend Services Supabase]
+    subgraph Backend [Backend Services PocketBase]
         Auth[Authentication]
-        DB[(PostgreSQL / PostGIS Database)]
-        Storage[Supabase Storage Buckets]
+        DB[(SQLite Database)]
+        Storage[Oracle Cloud Block Storage]
     end
 
     %% Client Interactions
@@ -68,8 +68,8 @@ graph TD
     NPU --> UI
 
     %% Client to Backend
-    SyncEngine -->|HTTPS Multi-Part & TUS Upload| Storage
-    SyncEngine -->|REST / RPC Sync| DB
+    SyncEngine -->|REST API| DB
+    SyncEngine -->|Multipart Form Upload| Storage
 ```
 
 ### Hardware & AI Pipeline Optimization
@@ -91,7 +91,7 @@ graph TD
    │ Cloud Pipeline                               │ │ Local Pipeline                   │
    │ • High-Res Image Upload                      │ │ • Light On-Device Quantized Model│
    │ • Vision Transformer (ViT) Classification    │ │   (MobileNet / ONNX Web Runtime) │
-   │ • Multimodal LLM (GPT-4o/Claude) via Supabase│ │ • Heuristic Rule Engine          │
+   │ • Multimodal LLM (GPT-4o/Claude) via Backend │ │ • Heuristic Rule Engine          │
    └──────────────────────┬───────────────────────┘ └────────────────┬─────────────────┘
                           │                                  │
                           └──────────────────┬───────────────┘
@@ -115,10 +115,10 @@ The user journey is split into three main contexts: Field (Active Discovery), Ho
     *   User queries the AI Assistant.
     *   If offline, the **Local Pipeline (ONNX Web Runtime)** provides immediate visual classification (e.g., distinguishing quartz from calcite).
 4.  **Geolocation & Storage:** The app tags the finding with GPS coordinates and stores the data and media locally in **RxDB / IndexedDB**. A mutation task is added to the **Offline Mutation Queue**.
-5.  **Background Sync:** Once network connectivity is restored, the **Sync Engine** initiates resumable TUS uploads for media and syncs the metadata to Supabase.
+5.  **Background Sync:** Once network connectivity is restored, the **Sync Engine** initiates multipart form uploads for media and syncs the metadata to PocketBase.
 
 ### Workflow B: Post-Expedition & Management (Home Use)
-1.  **Cataloging:** User reviews their Private Digital Gallery, organizing high-value pieces. The Supabase PostGIS database fuzzes public location data to prevent looting while keeping exact coordinates secure.
+1.  **Cataloging:** User reviews their Private Digital Gallery, organizing high-value pieces. The PocketBase SQLite database fuzzes public location data to prevent looting while keeping exact coordinates secure.
 2.  **Community Interaction:** User accesses the social map to discuss findings with other explorers.
 3.  **Mentorship:** A Level 5 Expert reviews a public finding, validates the identification, and provides feedback.
 
@@ -130,49 +130,42 @@ The user journey is split into three main contexts: Field (Active Discovery), Ho
 
 ## 4. Detailed Design Specifications
 
-### A. Data Schema & PostGIS Security Enhancements
+### A. Data Schema & SQLite Security Enhancements
 
-To prevent poaching risks (e.g., revealing exact coordinates of fragile fossil beds), the database employs PostGIS for spatial data manipulation and location fuzzing.
+To prevent poaching risks (e.g., revealing exact coordinates of fragile fossil beds), the database employs SQLite triggers (or application-level logic in PocketBase hooks) for spatial data manipulation and location fuzzing.
 
 ```sql
 -- Schema Refinement: Separate exact field location from public spatial data
-CREATE EXTENSION IF NOT EXISTS postgis;
+CREATE TABLE findings (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    ai_classification TEXT DEFAULT '{}',
 
-CREATE TABLE public.findings (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    title VARCHAR(255) NOT NULL,
-    ai_classification JSONB DEFAULT '{}'::jsonb,
-
-    -- Exact location (Restricted to owner & accredited Level 5 experts)
-    exact_location GEOMETRY(Point, 4326) NOT NULL,
+    -- Exact location (Restricted to owner & accredited Level 5 experts via PocketBase Rules)
+    exact_lat REAL NOT NULL,
+    exact_lng REAL NOT NULL,
 
     -- Public blurred location (Generalized spatial point/polygon for public feed)
-    public_fuzzed_location GEOMETRY(Point, 4326),
+    public_fuzzed_lat REAL,
+    public_fuzzed_lng REAL,
 
-    is_public BOOLEAN DEFAULT false,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    is_public BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Trigger to automatically fuzz coordinates for public consumption (e.g., ~2km offset)
-CREATE OR REPLACE FUNCTION fuzz_finding_location()
-RETURNS TRIGGER AS $$
+CREATE TRIGGER trg_fuzz_location_insert
+AFTER INSERT ON findings
 BEGIN
-    NEW.public_fuzzed_location := ST_SetSRID(
-        ST_MakePoint(
-            ST_X(NEW.exact_location) + (random() - 0.5) * 0.02,
-            ST_Y(NEW.exact_location) + (random() - 0.5) * 0.02
-        ), 4326);
-    RETURN NEW;
+    UPDATE findings
+    SET public_fuzzed_lat = NEW.exact_lat + (abs(random() % 2000) / 100000.0) - 0.01,
+        public_fuzzed_lng = NEW.exact_lng + (abs(random() % 2000) / 100000.0) - 0.01
+    WHERE id = NEW.id;
 END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trg_fuzz_location
-BEFORE INSERT OR UPDATE ON public.findings
-FOR EACH ROW EXECUTE FUNCTION fuzz_finding_location();
 ```
-*   **Row Level Security (RLS):** Standard users can only select the fuzzed coordinates of other users' findings, while Level 5 experts or the resource owner can query `exact_location`.
+*   **API Rules (PocketBase):** Standard users can only select the fuzzed coordinates of other users' findings, while Level 5 experts or the resource owner can query the exact lat/lng columns.
 
 ### B. Local-First Sync Data Models
 
@@ -253,24 +246,23 @@ stateDiagram-v2
 
     state SyncingMedia {
         [*] --> CheckPendingBlobs
-        CheckPendingBlobs --> UploadChunkTUS : Media > 0
-        UploadChunkTUS --> UploadChunkTUS : Transmit Next Bytes Buffer
-        UploadChunkTUS --> MediaUploaded : TUS 204 Complete
-        UploadChunkTUS --> PauseAndRetry : Socket Dropout / Timeout
-        PauseAndRetry --> UploadChunkTUS : Retry with Exponential Backoff
+        CheckPendingBlobs --> UploadMultipart : Media > 0
+        UploadMultipart --> MediaUploaded : Form 200 Complete
+        UploadMultipart --> PauseAndRetry : Socket Dropout / Timeout
+        PauseAndRetry --> UploadMultipart : Retry with Exponential Backoff
     }
 
     SyncingMedia --> SyncingFinding : All Media Uploaded successfully
 
     state SyncingFinding {
-        [*] --> PostGISWrite
-        PostGISWrite --> VerifyRLS : Send payload to Supabase RPC / REST
-        VerifyRLS --> MarkSynced : DB Insert Confirmed
-        VerifyRLS --> HandleError : 4xx / 5xx Error
+        [*] --> SQLiteWrite
+        SQLiteWrite --> VerifyAPI : Send payload to PocketBase REST API
+        VerifyAPI --> MarkSynced : DB Insert Confirmed
+        VerifyAPI --> HandleError : 4xx / 5xx Error
     }
 
     SyncingFinding --> Idle : Queue Empty
-    SyncingFinding --> FatalError : Max Retries Exceeded / RLS Rejection
+    SyncingFinding --> FatalError : Max Retries Exceeded / API Rejection
 
     state FatalError {
         [*] --> FlagRecordNeedsUserAttention
@@ -282,7 +274,7 @@ stateDiagram-v2
 *   **Native Path:** The true continuous 10-minute 1080p loop buffer will be deferred to the native Android build, utilizing Qualcomm's hardware codecs (`MediaCodec` + `SurfaceTexture` on a ring-buffer file descriptor) for power efficiency.
 
 ### E. User Role & Progression System
-*   **Technology:** Supabase Auth with custom user metadata.
+*   **Technology:** PocketBase Auth with custom users collection fields.
 *   **Roles:** `standard_scout` (Levels 1-4), `level_5_expert`.
 *   **Progression Logic:** A background service evaluating user actions (e.g., +10 points for verified AI ID) to update the user's level invisibly.
 
@@ -293,7 +285,7 @@ stateDiagram-v2
 Because field discoveries are predominantly user-centric (a user updates their own findings), collision risk between multiple users on a single record is low. However, if edits occur on separate offline devices before syncing:
 
 *   **Rule:** The system applies a **Field-Level Last-Write-Wins (LWW)** using the vector timestamp or ISO creation date.
-*   **Exception:** Deleted items on the client marked offline insert a `deleted_at` soft-delete flag rather than hard-deleting locally, ensuring tombstone synchronization reaches Supabase correctly.
+*   **Exception:** Deleted items on the client marked offline insert a `deleted_at` soft-delete flag rather than hard-deleting locally, ensuring tombstone synchronization reaches PocketBase correctly.
 
 #### Network Dropouts & Retry Backoff Logic
 
@@ -322,7 +314,7 @@ The engine hooks into the Network Information API (`navigator.connection`) and B
     *   Compress image captures client-side via `OffscreenCanvas` or WebAssembly (e.g., converting RAW/PNG to WebP at 85% quality) **prior** to writing to IndexedDB.
     *   Enforce an aggressive local storage retention policy: once `LocalMedia` achieves `sync_state: 'UPLOADED'`, replace the full local Blob with a low-res thumbnail, clearing heavy binary files from the device.
 
-### B. PostGIS Fuzzing Vector Uniformity
+### B. SQLite Spatial Fuzzing Vector Uniformity
 
 *   **The Challenge:** The current random offset formula generates a rectangular bounding box. Aggregating multiple public findings from a single site allows an adversary to average the fuzzed points and mathematically calculate the true centroid of the hidden site.
 *   **Actionable Fix:** Implement **Polar Coordinates with Gaussian Distance Noise** or snap points to a standardized static geographic grid (e.g., Uber H3 Spatial Indexing) so public points remain deterministic and cannot be reverse-engineered through statistical averaging.
@@ -354,5 +346,5 @@ $$ LANGUAGE plpgsql;
 | **Local Storage** | IndexedDB via **RxDB** / Dexie.js | SQLite via **WatermelonDB** / Room |
 | **Capture Buffer** | Canvas WebP Burst Capture / 30s manual clips | Hardware `MediaCodec` Ring Buffer onto file descriptor |
 | **Offline Inference** | **ONNX Runtime Web** (WASM / WebGL worker) | **Qualcomm SNPE / NPU SDK** (Native C++ bindings) |
-| **Media Transport** | TUS Protocol via Supabase Storage JS | TUS Protocol with background Android `WorkManager` |
+| **Media Transport** | Multipart form upload via PocketBase SDK | Multipart form upload with background Android `WorkManager` |
 | **Geospatial Cache** | MBTiles vector chunks via IndexedDB Cache | MBTiles / GeoTIFF via native Mapbox SDK filesystem cache |
