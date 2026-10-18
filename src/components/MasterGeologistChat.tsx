@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, User, Bot, X } from 'lucide-react';
-import OpenAI from 'openai';
+import { pb } from '../lib/pocketbase';
 
 interface Message {
   id: string;
@@ -38,15 +38,6 @@ const MasterGeologistChat: React.FC<MasterGeologistChatProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Initialize OpenAI Client
-  // SECURITY WARNING: In a production app, this API key MUST NOT be bundled in the client.
-  // It should be proxy-called via a PocketBase custom route or serverless function.
-  // For this MVP, we use the `dangerouslyAllowBrowser` flag.
-  const openai = new OpenAI({
-    apiKey: import.meta.env.VITE_OPENAI_API_KEY || 'sk-placeholder-key',
-    dangerouslyAllowBrowser: true
-  });
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
@@ -63,36 +54,29 @@ const MasterGeologistChat: React.FC<MasterGeologistChatProps> = ({
     setIsLoading(true);
 
     try {
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini", // Use a fast, capable model for the MVP
-        messages: [
-          {
-            role: "system",
-            content: `You are the Master Geologist, an AI mentor for the Eon field science app.
-            You are currently discussing a user's recent field finding which was visually identified as: ${findingTitle}.
-            Be pedagogical, encouraging, and provide scientifically accurate information about geology, paleontology, or mineralogy. Keep answers concise.`
-          },
-          ...updatedMessages.map(m => ({ role: m.role, content: m.content }))
-        ],
-        temperature: 0.7,
+      // Securely call a custom PocketBase route that holds the OpenAI API Key on the server
+      const response = await pb.send('/api/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          findingTitle,
+          messages: updatedMessages.map(m => ({ role: m.role, content: m.content }))
+        })
       });
 
-      const aiResponseContent = response.choices[0]?.message?.content;
-
-      if (aiResponseContent) {
+      if (response && response.content) {
         setMessages(prev => [...prev, {
           id: Date.now().toString(),
           role: 'assistant',
-          content: aiResponseContent
+          content: response.content
         }]);
       }
     } catch (err: any) {
-      console.error("OpenAI API Error:", err);
-      // Fallback message if API fails (e.g., due to missing or invalid key during local testing)
+      console.error("Chat API Error:", err);
+      // Fallback message if API fails
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         role: 'assistant',
-        content: `Sorry, my satellite uplink is a bit spotty right now or the API key is missing. (Error: ${err.message})`
+        content: `Sorry, my satellite uplink to basecamp is spotty right now. (Error: ${err.message})`
       }]);
     } finally {
       setIsLoading(false);

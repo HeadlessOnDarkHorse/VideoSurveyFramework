@@ -9,7 +9,8 @@ vi.mock('@/lib/pocketbase', () => {
         isValid: false,
         onChange: vi.fn(() => vi.fn())
       },
-      collection: vi.fn()
+      collection: vi.fn(),
+      send: vi.fn()
     }
   };
 });

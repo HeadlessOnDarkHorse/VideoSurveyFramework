@@ -5,11 +5,15 @@ export class SyncEngine {
   private isSyncing = false;
   private intervalId: ReturnType<typeof setInterval> | null = null;
 
+  private handleOnline = () => {
+    this.triggerSync();
+  };
+
   start() {
     if (this.intervalId) return;
 
     // Listen for OS/Browser online events to trigger immediate sync
-    window.addEventListener('online', this.triggerSync.bind(this));
+    window.addEventListener('online', this.handleOnline);
 
     // Also poll every 30 seconds as a fallback in case events are missed
     this.intervalId = setInterval(() => {
@@ -29,7 +33,7 @@ export class SyncEngine {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
-    window.removeEventListener('online', this.triggerSync.bind(this));
+    window.removeEventListener('online', this.handleOnline);
   }
 
   public async triggerSync() {
