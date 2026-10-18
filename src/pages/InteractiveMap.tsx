@@ -3,9 +3,10 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../lib/db';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import { ArrowLeft, Navigation } from 'lucide-react';
+import { ArrowLeft, Navigation, Globe } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import L from 'leaflet';
+import { pb } from '../lib/pocketbase';
 
 // Fix Leaflet's default icon path issues in React
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -27,10 +28,28 @@ const MapController: React.FC<{center: [number, number] | null}> = ({ center }) 
 };
 
 const InteractiveMap: React.FC = () => {
-  const findings = useLiveQuery(() => db.findings.toArray());
+  const localFindings = useLiveQuery(() => db.findings.toArray());
+  const [communityFindings, setCommunityFindings] = useState<any[]>([]);
   const [currentLocation, setCurrentLocation] = useState<[number, number] | null>(null);
 
   useEffect(() => {
+    // Fetch public community findings from PocketBase backend
+    const fetchCommunityData = async () => {
+      try {
+        if (pb.authStore.isValid) {
+          const records = await pb.collection('findings').getFullList({
+            filter: 'is_public = true',
+            sort: '-created_at',
+          });
+          setCommunityFindings(records);
+        }
+      } catch (err) {
+        console.error("Failed to fetch community findings:", err);
+      }
+    };
+
+    fetchCommunityData();
+
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => setCurrentLocation([pos.coords.latitude, pos.coords.longitude]),
@@ -78,17 +97,40 @@ const InteractiveMap: React.FC = () => {
              </Marker>
           )}
 
-          {/* Saved Findings */}
-          {findings?.map((finding) => {
+          {/* Local Offline Findings */}
+          {localFindings?.map((finding) => {
             if (finding.lat && finding.lng) {
               return (
                 <Marker key={finding.id} position={[finding.lat, finding.lng]}>
                   <Popup>
                     <div className="flex flex-col min-w-[150px]">
-                      <img src={finding.imageDataUrl} alt={finding.title} className="w-full h-24 object-cover rounded mb-2" />
+                      {finding.imageDataUrl && <img src={finding.imageDataUrl} alt={finding.title} className="w-full h-24 object-cover rounded mb-2" />}
                       <strong className="text-sm text-zinc-900">{finding.title}</strong>
                       <span className="text-xs text-zinc-500 mt-1">
-                        {new Date(finding.createdAt).toLocaleDateString()}
+                        {new Date(finding.createdAt).toLocaleDateString()} (Local)
+                      </span>
+                    </div>
+                  </Popup>
+                </Marker>
+              );
+            }
+            return null;
+          })}
+
+          {/* Public Community Findings */}
+          {communityFindings.map((finding) => {
+            if (finding.public_fuzzed_lat && finding.public_fuzzed_lng) {
+              return (
+                <Marker key={finding.id} position={[finding.public_fuzzed_lat, finding.public_fuzzed_lng]}>
+                  <Popup>
+                    <div className="flex flex-col min-w-[150px]">
+                      <div className="flex items-center space-x-1 text-blue-600 mb-1">
+                        <Globe className="w-3 h-3" />
+                        <span className="text-xs font-bold uppercase tracking-wider">Community Find</span>
+                      </div>
+                      <strong className="text-sm text-zinc-900">{finding.title}</strong>
+                      <span className="text-xs text-zinc-500 mt-1">
+                        Fuzzed Location
                       </span>
                     </div>
                   </Popup>

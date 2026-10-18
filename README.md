@@ -64,7 +64,7 @@ If you prefer to set up the environments manually:
    ```
 2. Create a `.env` file in the root directory (Optional: if testing AI Chatbot locally):
    ```env
-   VITE_OPENAI_API_KEY=your_openai_api_key_here
+   OPENAI_API_KEY=your_openai_api_key_here
    ```
 3. Start the development server:
    ```bash

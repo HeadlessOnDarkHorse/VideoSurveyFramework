@@ -50,12 +50,20 @@ else
 fi
 cd ..
 
-# 3. Apply Schema (Optional Helper)
-echo -e "\n${GREEN}[3/4] Database Configuration...${NC}"
+# 3. Apply Schema & Hooks
+echo -e "\n${GREEN}[3/4] Backend Configuration...${NC}"
+echo "Copying pb_hooks to backend..."
+cp -r pb_hooks backend/
 echo "Please remember to import 'pb_schema.json' via the PocketBase Admin UI (Settings > Import/Export) once the server starts."
 
 # 4. Start Servers
 echo -e "\n${GREEN}[4/4] Starting Development Servers...${NC}"
+
+# Export environment variables for PocketBase Go hooks (e.g. OPENAI_API_KEY)
+if [ -f ".env" ]; then
+    echo "Loading environment variables from .env..."
+    export $(grep -v '^#' .env | xargs)
+fi
 
 # Start PocketBase in the background
 echo "Starting PocketBase on http://127.0.0.1:8090"

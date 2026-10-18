@@ -27,18 +27,35 @@ const FieldCapture: React.FC = () => {
       );
     }
 
-    // In a real environment, we would load actual model/label URLs here.
-    // For MVP UI dev, we initialize the client, but handle the lack of models via try/catch mock below.
-    try {
-      classifierClient.current = new ClassifierClient(
-        new URL('../lib/classifier.worker.ts', import.meta.url).href
-      );
-      // We don't call .initialize() yet because we don't have a model URL.
-    } catch (e) {
-      console.warn('Failed to initialize ClassifierClient', e);
-    }
+    let mounted = true;
+
+    const initClient = async () => {
+      try {
+        const client = new ClassifierClient(
+          new URL('../lib/classifier.worker.ts', import.meta.url).href
+        );
+
+        // Use a public CDN for the ONNX MobileNet model, and local JSON for labels
+        await client.initialize(
+          'https://raw.githubusercontent.com/onnx/models/main/validated/vision/classification/mobilenet/model/mobilenetv2-7.onnx',
+          '/models/imagenet_classes.json'
+        );
+
+        if (mounted) {
+          classifierClient.current = client;
+        } else {
+          client.terminate();
+        }
+      } catch (e) {
+        console.error('Failed to initialize ClassifierClient', e);
+        if (mounted) setError('Failed to load AI model. Please check your connection.');
+      }
+    };
+
+    initClient();
 
     return () => {
+      mounted = false;
       classifierClient.current?.terminate();
     };
   }, []);
@@ -57,24 +74,21 @@ const FieldCapture: React.FC = () => {
     setResults(null);
 
     try {
-      // Simulate network/processing delay
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      if (!classifierClient.current) {
+        throw new Error('AI Model is not initialized yet. Please wait.');
+      }
 
-      // Attempt actual classification if models exist, otherwise mock
-      // (Since we don't have models hosted in the MVP yet, we force a mock result)
-      const mockSuccess = true;
+      // Convert base64 DataURL from webcam to a Blob for the worker
+      const res = await fetch(imageSrc);
+      const blob = await res.blob();
 
-      if (mockSuccess) {
-        setResults([
-          { label: 'Quartz (SiO2)', confidence: 0.92, classIndex: 42 },
-          { label: 'Calcite (CaCO3)', confidence: 0.05, classIndex: 12 },
-          { label: 'Feldspar', confidence: 0.02, classIndex: 8 },
-        ]);
+      // Call the actual ONNX web worker
+      const classification = await classifierClient.current.classifyImage(blob, 3);
+
+      if (classification && classification.length > 0) {
+        setResults(classification);
       } else {
-         // Example of how we would call the real client:
-         // const blob = await (await fetch(imageSrc)).blob();
-         // const res = await classifierClient.current?.classifyImage(blob);
-         // setResults(res);
+        throw new Error('Classification returned no results.');
       }
     } catch (err: any) {
       setError(err.message || 'Failed to classify finding.');

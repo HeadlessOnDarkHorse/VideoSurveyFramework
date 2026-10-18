@@ -23,7 +23,6 @@
     "leaflet": "^1.9.4",
     "lucide-react": "^0.548.0",
     "onnxruntime-web": "^1.30.0",
-    "openai": "^7.38.0",
     "pocketbase": "^0.28.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
