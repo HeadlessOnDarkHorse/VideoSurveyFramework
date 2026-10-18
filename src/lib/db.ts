@@ -21,4 +21,19 @@ db.version(1).stores({
   findings: 'id, syncState, createdAt'
 });
 
+// Request persistent storage quota to mitigate iOS Safari aggressive eviction policies
+export async function requestPersistentStorage() {
+  if (navigator.storage && navigator.storage.persist) {
+    try {
+      const isPersisted = await navigator.storage.persist();
+      console.log(`Persistent storage granted: ${isPersisted}`);
+      return isPersisted;
+    } catch (err) {
+      console.warn("Failed to request persistent storage:", err);
+      return false;
+    }
+  }
+  return false;
+}
+
 export { db };

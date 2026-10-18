@@ -130,40 +130,44 @@ The user journey is split into three main contexts: Field (Active Discovery), Ho
 
 ## 4. Detailed Design Specifications
 
-### A. Data Schema & SQLite Security Enhancements
+### A. Data Schema & Location Security Enhancements
 
-To prevent poaching risks (e.g., revealing exact coordinates of fragile fossil beds), the database employs SQLite triggers (or application-level logic in PocketBase hooks) for spatial data manipulation and location fuzzing.
+To prevent poaching risks (e.g., revealing exact coordinates of fragile fossil beds), the database employs spatial data manipulation and location fuzzing.
 
-```sql
--- Schema Refinement: Separate exact field location from public spatial data
-CREATE TABLE findings (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    title TEXT NOT NULL,
-    ai_classification TEXT DEFAULT '{}',
+**PocketBase Implementation Strategy:**
+Because PocketBase uses SQLite, which lacks advanced native spatial triggers like PostGIS, the location fuzzing must be handled via **PocketBase Go Hooks** or client-side generation before sync.
 
-    -- Exact location (Restricted to owner & accredited Level 5 experts via PocketBase Rules)
-    exact_lat REAL NOT NULL,
-    exact_lng REAL NOT NULL,
+**Example Go Hook Implementation (`main.go`):**
+```go
+package main
 
-    -- Public blurred location (Generalized spatial point/polygon for public feed)
-    public_fuzzed_lat REAL,
-    public_fuzzed_lng REAL,
+import (
+	"math"
+	"math/rand"
+	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/core"
+)
 
-    is_public BOOLEAN DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
+func main() {
+	app := pocketbase.New()
 
--- Trigger to automatically fuzz coordinates for public consumption (e.g., ~2km offset)
-CREATE TRIGGER trg_fuzz_location_insert
-AFTER INSERT ON findings
-BEGIN
-    UPDATE findings
-    SET public_fuzzed_lat = NEW.exact_lat + (abs(random() % 2000) / 100000.0) - 0.01,
-        public_fuzzed_lng = NEW.exact_lng + (abs(random() % 2000) / 100000.0) - 0.01
-    WHERE id = NEW.id;
-END;
+	app.OnRecordBeforeCreateRequest("findings").Add(func(e *core.RecordCreateEvent) error {
+		exactLat := e.Record.GetFloat("exact_lat")
+		exactLng := e.Record.GetFloat("exact_lng")
+
+		// Simple Hexagonal Grid Fuzzing (approx ~1.5km bins)
+		gridSize := 0.015
+		fuzzedLat := math.Floor(exactLat/gridSize)*gridSize + (gridSize / 2.0)
+		fuzzedLng := math.Floor(exactLng/gridSize)*gridSize + (gridSize / 2.0)
+
+		e.Record.Set("public_fuzzed_lat", fuzzedLat)
+		e.Record.Set("public_fuzzed_lng", fuzzedLng)
+
+		return nil
+	})
+
+	app.Start()
+}
 ```
 *   **API Rules (PocketBase):** Standard users can only select the fuzzed coordinates of other users' findings, while Level 5 experts or the resource owner can query the exact lat/lng columns.
 
@@ -346,5 +350,15 @@ $$ LANGUAGE plpgsql;
 | **Local Storage** | IndexedDB via **RxDB** / Dexie.js | SQLite via **WatermelonDB** / Room |
 | **Capture Buffer** | Canvas WebP Burst Capture / 30s manual clips | Hardware `MediaCodec` Ring Buffer onto file descriptor |
 | **Offline Inference** | **ONNX Runtime Web** (WASM / WebGL worker) | **Qualcomm SNPE / NPU SDK** (Native C++ bindings) |
-| **Media Transport** | Multipart form upload via PocketBase SDK | Multipart form upload with background Android `WorkManager` |
+| **Media Transport** | Multipart form upload via PocketBase SDK (or sidecar `tusd`) | Multipart form upload with background Android `WorkManager` |
 | **Geospatial Cache** | MBTiles vector chunks via IndexedDB Cache | MBTiles / GeoTIFF via native Mapbox SDK filesystem cache |
+
+### C. Storage Transport & Large Files
+PocketBase utilizes standard multipart file uploads via its REST API rather than the TUS resumable upload protocol. If true resumable uploads are required for large field videos in poor signal areas, the architecture will require either wrapping PocketBase with a lightweight TUS daemon (`tusd`) pointing to Oracle Cloud Block Storage, or handling chunked uploads manually within PocketBase Go hooks.
+
+### D. PWA Robustness on iOS Safari
+iOS Safari maintains aggressive storage eviction policies for IndexedDB. To mitigate the risk of local findings being deleted before synchronization, the application must integrate the **Storage Access API**. Calling `navigator.storage.persist()` during onboarding will request a persistent storage quota from the browser, safeguarding offline captures.
+
+### E. Thermal Management & NPU Throttling
+Field expeditions frequently occur in high-ambient-temperature environments (deserts, quarries). Continuous hardware utilization (AI inference, camera ISP, GPS tracking, and maximum screen brightness) will rapidly induce thermal throttling.
+*   **Adaptive Throttling Mode:** The frontend application should monitor device temperature and frame-drop rates. If high thermal stress is detected, the continuous AI inference pipeline should fall back from real-time stream processing to a manual "trigger-only" capture mode to protect device battery and longevity.

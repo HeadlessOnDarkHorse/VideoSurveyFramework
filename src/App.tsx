@@ -2,13 +2,19 @@ import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import LandingPage from "./pages/LandingPage";
 import SignIn from "./pages/SignIn";
 import SignUp from "./pages/SignUp";
+import { useEffect } from "react";
 import Dashboard from "./pages/Dashboard";
 import Settings from "./pages/Settings";
 import FieldCapture from "./components/FieldCapture";
 import PrivateGallery from "./pages/PrivateGallery";
 import InteractiveMap from "./pages/InteractiveMap";
+import { requestPersistentStorage } from "./lib/db";
 
 function App() {
+  useEffect(() => {
+    requestPersistentStorage();
+  }, []);
+
   return (
     <Router>
       <Routes>
