@@ -1,11 +1,14 @@
 import React from 'react';
+import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../lib/db';
-import { ArrowLeft, Map, UploadCloud, Info } from 'lucide-react';
+import { ArrowLeft, Map, UploadCloud, Info, MessageCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import MasterGeologistChat from '../components/MasterGeologistChat';
 
 const PrivateGallery: React.FC = () => {
   const findings = useLiveQuery(() => db.findings.orderBy('createdAt').reverse().toArray());
+  const [selectedFindingForChat, setSelectedFindingForChat] = useState<{id: string, title: string, classification: any} | null>(null);
 
   return (
     <div className="min-h-screen bg-black text-white flex flex-col pb-20">
@@ -52,17 +55,29 @@ const PrivateGallery: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="absolute bottom-0 w-full p-3 bg-gradient-to-t from-black to-transparent">
+                <div className="absolute bottom-0 w-full p-3 bg-gradient-to-t from-black via-black/80 to-transparent">
                   <h3 className="font-semibold text-sm truncate">{item.title}</h3>
-                  <div className="flex justify-between items-center mt-1">
-                    <span className="text-xs text-zinc-400">
-                      {new Date(item.createdAt).toLocaleDateString()}
-                    </span>
-                    {item.classification && item.classification[0] && (
-                       <span className="text-xs font-bold text-blue-400">
-                         {(item.classification[0].confidence * 100).toFixed(0)}%
-                       </span>
-                    )}
+                  <div className="flex justify-between items-end mt-1">
+                    <div className="flex flex-col">
+                      <span className="text-xs text-zinc-400">
+                        {new Date(item.createdAt).toLocaleDateString()}
+                      </span>
+                      {item.classification && item.classification[0] && (
+                         <span className="text-xs font-bold text-blue-400 mt-0.5">
+                           {(item.classification[0].confidence * 100).toFixed(0)}% match
+                         </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => setSelectedFindingForChat({
+                        id: item.id,
+                        title: item.title,
+                        classification: item.classification
+                      })}
+                      className="p-1.5 bg-blue-600 rounded-full hover:bg-blue-500 transition shadow-lg"
+                    >
+                      <MessageCircle className="w-4 h-4 text-white" />
+                    </button>
                   </div>
                 </div>
               </div>
@@ -70,6 +85,17 @@ const PrivateGallery: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Render Chatbot Overlay if a finding is selected */}
+      {selectedFindingForChat && (
+        <MasterGeologistChat
+          findingId={selectedFindingForChat.id}
+          findingTitle={selectedFindingForChat.title}
+          aiClassificationData={selectedFindingForChat.classification}
+          onClose={() => setSelectedFindingForChat(null)}
+        />
+      )}
+
     </div>
   );
 };

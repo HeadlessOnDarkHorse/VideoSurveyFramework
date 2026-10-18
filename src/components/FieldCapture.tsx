@@ -89,10 +89,20 @@ const FieldCapture: React.FC = () => {
     setError(null);
   };
 
+  const generatePocketBaseId = () => {
+    // PocketBase requires a 15-character alphanumeric ID
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let result = '';
+    for (let i = 0; i < 15; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+  };
+
   const saveToGallery = async () => {
     if (!capturedImage || !results) return;
 
-    const id = crypto.randomUUID();
+    const id = generatePocketBaseId();
     const primaryResult = results[0];
 
     await db.findings.add({
